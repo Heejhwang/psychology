@@ -1,0 +1,156 @@
+library(dplyr)
+library(rstan)
+
+#pre-processing
+dat <- data %>%
+  filter(target_mod != "word")
+dat <- dat %>%
+  filter(priming_type == "no_priming")
+
+dat <- dat %>% 
+  arrange(idcode, trial_index)
+
+set.seed(2025)
+
+# read the data file
+
+allSubjs = unique(dat$idcode)  # all subject IDs
+N = length(allSubjs)      # number of subjects
+T <- max(table(dat$idcode))
+dat$rt <- dat$rt / 1000
+
+# idcode가 782733인 첫 번째 trial 인덱스 찾기
+idx <- which(dat$idcode == 782733 & dat$trial_index == 1)
+
+# 해당 idcode의 반응시간 중 첫 번째 rt가 너무 작으면 중간값으로 대체 (첫번째 제외)
+rt_median <- median(dat$rt[dat$idcode == 782733 & dat$trial_index != 1], na.rm = TRUE)
+
+# 조건에 맞으면 값 바꾸기
+if (length(idx) == 1 && dat$rt[idx] < 0.05) {
+  dat$rt[idx] <- rt_median
+}
+
+# response 열을 새로 생성하고 조건에 따라 값을 할당
+dat$response <- ifelse(dat$nat_cond == "man_made" & dat$acc == 1, "man_made", 
+                       ifelse(dat$nat_cond == "man_made" & dat$acc == 0, "natural", 
+                              ifelse(dat$nat_cond == "natural" & dat$acc == 1, "natural", 
+                                     ifelse(dat$nat_cond == "natural" & dat$acc == 0, "man_made", NA))))
+
+# 결과 확인
+head(dat)
+
+
+minRT <- sapply(allSubjs, function(s) {
+  min(dat$rt[dat$idcode == s], na.rm = TRUE)
+})
+
+
+choice  <- array(0, c(N, T))
+RT <- array(0, c(N, T))
+subtlex <- array(0, c(N, T))
+
+for (i in 1:N) {
+  curSubj = allSubjs[i]
+  tmp = subset(dat, idcode == curSubj)
+  nTrials = nrow(tmp)
+  
+  # acc 0 → 2, 1 → 1 변환
+  choice[i, 1:nTrials] <- ifelse(tmp$response == "man_made", 2, 1)
+  
+  # rt, subtlex_log, greene_log도 실제 trial 수만큼 할당
+  RT[i, 1:nTrials] <- tmp$rt
+  subtlex[i, 1:nTrials] <- tmp$subtlex_log
+}
+
+
+dataList <- list(
+  N       = N,
+  T       = T,
+  Tsubj   = rep(T, N),
+  RT = RT,
+  subtlex = subtlex,
+  choice = choice,
+  minRT = minRT,
+  RTbound = 0.1
+)
+
+#Model 1
+output = stan("DDM_Lexical_2.stan",
+              data = dataList,
+              pars = c("mu_pr", "sigma", "a", "tau", "d1_intercept", "d1_slope","log_lik"),
+              iter = 2000,
+              warmup = 1000,
+              chains = 4,
+              cores = 2,
+              init = function() {
+                list(tau_pr = rep(-1.5, N))  # N은 tau_pr 길이 (예: 참가자 수)
+              })
+
+# drift_subtlex_output에서 각 참가자별로 100개의 트라이얼에 대한 평균 계산
+parameters2 <- parameters::rstan(output2)
+estimated_params <- extract(output)
+
+
+mean_drift_rate <- apply(parameters$drift_subtlex_output, 2, mean)
+print(mean_drift_rate)
+
+traceplot(output)
+
+# Stan 모델의 요약 결과 얻기
+fisummary <- summary(output)
+
+# Rhat 값 추출
+rhat_values <- fisummary$summary[, "Rhat"]
+
+# Rhat 값 출력
+print(rhat_values)
+
+traceplot(output, pars = "a")  # 또는
+
+par(mfrow = c(1, 1))  # 3행 5열로 배치
+
+hist(parameters$mu_pr[,1])
+
+
+plot(output, show_density = T, pars="mu_pr")
+plot(output, show_density = T, pars="sigma")
+plot(output, show_density = T, pars="a")
+plot(output, show_density = T, pars="tau")
+plot(output, show_density = T, pars="d1_intercept")
+plot(output, show_density = T, pars="d1_slope")
+
+library(ggplot2)
+
+#looic
+library(loo)
+
+log_lik_1 <- extract(output)$log_lik
+log_lik_2 <- extract(output2)$log_lik
+log_lik_3 <- extract(output3)$log_lik
+log_lik_4 <- extract(output4)$log_lik
+
+
+looic1 <- loo(log_lik_1)$looic
+looic2 <- loo(log_lik_2)$looic
+looic3 <- loo(log_lik_3)$looic
+looic4 <- loo(log_lik_4)$looic
+
+looic1 <- loo(log_lik_1)$estimates["looic", "Estimate"]
+looic2 <- loo(log_lik_2)$estimates["looic", "Estimate"]
+
+
+# extract Stan fit object (parameters)
+parameters <- rstan::extract(output)
+
+a_mean_est = apply(parameters$a, 2, mean)
+tau_mean_est = apply(parameters$tau, 2, mean)
+d1_intercept_mean_est = apply(parameters$d1_intercept, 2, mean)
+d1_slope_mean_est = apply(parameters$d1_slope, 2, mean)
+
+plot(simul_pars$alpha, alpha_mean, xlim=c(0, 0.5), ylim=c(0, 0.5)); abline(0,1)
+arrows(x0=simul_pars$alpha, y0= alpha_mean - alpha_sd, y1= alpha_mean + alpha_sd, length=0.02, angle=90, code=3)
+
+plot(simul_pars$beta, beta_mean, xlim=c(0, 4), ylim=c(0, 4)); abline(0,1)
+arrows(x0=simul_pars$beta, y0=beta_mean-beta_sd, y1=beta_mean+beta_sd, length=0.05, angle=90, code=3)
+
+

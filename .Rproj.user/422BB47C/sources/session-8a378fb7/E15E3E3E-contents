@@ -1,0 +1,81 @@
+# --- 0. 환경 준비 ---
+set.seed(2025)
+library(dplyr)
+
+# --- 1. 시뮬레이션 설정 ---
+N <- 42
+Max_tr <- 100
+s <- 1.0  # drift rate noise
+
+# --- 2. posterior summary 불러오기 ---
+posterior_summary <- read.table("posterior_summary_lba.txt", header = TRUE, sep = "\t")
+posterior_summary$param <- rownames(posterior_summary)
+
+# --- 3. 파라미터별 posteriors 추출 ---
+extract_post <- function(name) {
+  posterior_summary[grep(paste0("^", name, "\\["), posterior_summary$param), ]
+}
+
+d_post     <- extract_post("d")
+A_post     <- extract_post("A")
+tau_post   <- extract_post("tau")
+int_post   <- extract_post("intercept")
+slope_post <- extract_post("slope")
+
+# --- 4. 시뮬레이션 수행 ---
+all_data <- NULL
+
+for (i in 1:N) {
+  # 개별 파라미터 샘플링
+  d         <- rnorm(1, mean = d_post$mean[i],     sd = d_post$sd[i])
+  A         <- rnorm(1, mean = A_post$mean[i],     sd = A_post$sd[i])
+  tau       <- rnorm(1, mean = tau_post$mean[i],   sd = tau_post$sd[i])
+  intercept <- rnorm(1, mean = int_post$mean[i],   sd = int_post$sd[i])
+  slope     <- rnorm(1, mean = slope_post$mean[i], sd = slope_post$sd[i])
+  b         <- A + d
+  
+  # 자극값 생성
+  subtlex_i  <- rnorm(Max_tr, 0, 1)
+  stimtype_i <- sample(1:2, Max_tr, replace = TRUE)
+  v_trial    <- matrix(NA, Max_tr, 2)
+  
+  for (t in 1:Max_tr) {
+    v_t <- intercept + slope * subtlex_i[t]
+    if (stimtype_i[t] == 1) {
+      v_trial[t, 1] <- v_t
+      v_trial[t, 2] <- 1.0
+    } else {
+      v_trial[t, 2] <- v_t
+      v_trial[t, 1] <- 1.0
+    }
+  }
+  
+  # RT 생성
+  start <- matrix(runif(2 * Max_tr, 0, A), ncol = 2)
+  drift <- matrix(rnorm(2 * Max_tr, mean = as.vector(v_trial), sd = s), ncol = 2)
+  ttf   <- (b - start) / drift
+  ttf[drift <= 0] <- Inf
+  RT     <- apply(ttf, 1, min) + tau
+  choice <- apply(ttf, 1, which.min)
+  
+  # trial-level 데이터 저장
+  tmp <- data.frame(
+    subjID         = rep(i, Max_tr),
+    trial          = 1:Max_tr,
+    choice         = choice,
+    RT             = RT,
+    stimulus_type  = stimtype_i,
+    subtlex        = subtlex_i,
+    true_d         = rep(d, Max_tr),
+    true_A         = rep(A, Max_tr),
+    true_tau       = rep(tau, Max_tr),
+    true_intercept = rep(intercept, Max_tr),
+    true_slope     = rep(slope, Max_tr)
+  )
+  
+  all_data <- rbind(all_data, tmp)
+}
+
+# --- 5. 파일 저장 ---
+write.table(all_data, file = "simul_data_lba_model1.txt",
+            row.names = FALSE, col.names = TRUE, sep = "\t")

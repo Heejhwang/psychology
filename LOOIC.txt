@@ -1,0 +1,33 @@
+subtlex
+Computed from 4000 by 42 log-likelihood matrix.
+
+         Estimate    SE
+elpd_loo   1301.6 292.3
+p_loo       123.4   6.0
+looic     -2603.1 584.6
+------
+MCSE of elpd_loo is NA.
+MCSE and ESS estimates assume independent draws (r_eff=1).
+
+Pareto k diagnostic values:
+                         Count Pct.    Min. ESS
+(-Inf, 0.7]   (good)      3     7.1%   107     
+   (0.7, 1]   (bad)      15    35.7%   <NA>    
+   (1, Inf)   (very bad) 24    57.1%   <NA>    
+See help('pareto-k-diagnostic') for details.
+
+subtlex+greene
+         Estimate    SE
+elpd_loo   1305.5 291.1
+p_loo       126.0   6.0
+looic     -2611.1 582.2
+------
+MCSE of elpd_loo is NA.
+MCSE and ESS estimates assume independent draws (r_eff=1).
+
+Pareto k diagnostic values:
+                         Count Pct.    Min. ESS
+(-Inf, 0.7]   (good)      0     0.0%   <NA>    
+   (0.7, 1]   (bad)      22    52.4%   <NA>    
+   (1, Inf)   (very bad) 20    47.6%   <NA>    
+See help('pareto-k-diagnostic') for details.

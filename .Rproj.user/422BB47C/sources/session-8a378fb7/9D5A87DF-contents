@@ -1,0 +1,76 @@
+#rm(list=ls())
+
+# Simulation parameters
+seed <- 2025    # do not change the seed number!
+num_subjs  <- 42 # number of subjects
+num_trials <- 100 # number of trials per subject
+s=1.0
+
+# Set seed
+set.seed(seed)   # always set a seed number for this homework!
+
+# True parameters 
+pars <- rstan::extract(output_lba)
+
+simul_pars <- data.frame(
+  d         = colMeans(pars$d),           # 개별 d
+  A         = colMeans(pars$A),           # 개별 A
+  tau       = colMeans(pars$tau),         # 개별 tau
+  intercept = colMeans(pars$intercept),   # 개별 intercept
+  slope     = rep(mean(pars$slope), N),   # slope는 그룹 레벨이므로 mean으로 똑같이
+  subjID    = 1:N
+)
+
+# For storing simulated choice data for all subjects
+all_data <- NULL
+
+# 결과 저장용
+all_data <- NULL
+Max_tr <- 100
+
+for (i in 1:N) {
+  d         <- simul_pars$d[i]
+  A         <- simul_pars$A[i]
+  tau       <- simul_pars$tau[i]
+  intercept <- simul_pars$intercept[i]
+  slope     <- simul_pars$slope[i]
+  b         <- A + d
+  
+  # trial predictor 및 조건 생성
+  subtlex_i <- rnorm(Max_tr, 0, 1)
+  stimtype_i <- sample(1:2, Max_tr, replace = TRUE)
+  
+  # drift rate 계산
+  v_trial <- matrix(NA, nrow = Max_tr, ncol = 2)
+  for (t in 1:Max_tr) {
+    v_t <- intercept + slope * subtlex_i[t]
+    if (stimtype_i[t] == 1) {
+      v_trial[t, 1] <- v_t
+      v_trial[t, 2] <- 1.0
+    } else {
+      v_trial[t, 2] <- v_t
+      v_trial[t, 1] <- 1.0
+    }
+  }
+  
+  # LBA RT 생성
+  start <- matrix(runif(2 * Max_tr, 0, A), ncol = 2)
+  drift <- matrix(rnorm(2 * Max_tr, mean = v_trial, sd = 1.0), ncol = 2)
+  ttf   <- (b - start) / drift
+  ttf[drift <= 0] <- Inf
+  RT    <- apply(ttf, 1, min) + tau
+  
+  tmp_data <- data.frame(
+    subjID = rep(i, Max_tr),
+    trial  = 1:Max_tr,
+    RT     = RT,
+    stimulus_type = stimtype_i,
+    subtlex = subtlex_i
+  )
+  
+  all_data <- rbind(all_data, tmp_data)
+}
+
+# Write out data
+write.table(all_data, file = "simul_data_lba_model1.txt",
+            row.names = FALSE, col.names = TRUE, sep = "\t")

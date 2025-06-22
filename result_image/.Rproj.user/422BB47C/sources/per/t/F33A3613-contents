@@ -1,0 +1,145 @@
+functions {
+  real lba_pdf(real t, real b, real A, real v, real s) {
+    real z1 = (b - A - t * v) / (t * s);
+    real z2 = (b - t * v) / (t * s);
+    return (1 / A) * (-v * Phi(z1) + s * exp(normal_lpdf(z1 | 0, 1))
+                      + v * Phi(z2) - s * exp(normal_lpdf(z2 | 0, 1)));
+  }
+
+  real lba_cdf(real t, real b, real A, real v, real s) {
+    real z1 = b - A - t * v;
+    real z2 = b - t * v;
+    real ts = t * s;
+    return 1 + (z1 / A) * Phi(z1 / ts) - (z2 / A) * Phi(z2 / ts) +
+           (ts / A) * (exp(normal_lpdf(z1 / ts | 0, 1)) - exp(normal_lpdf(z2 / ts | 0, 1)));
+  }
+
+  real lba_loglik(real rt, int choice, vector v, real k, real A, real s, real psi) {
+    real t = rt - psi;
+    real b = A + k;
+    real pdf;
+    real cdf_prod = 1;
+
+    if (t <= 0) return negative_infinity();
+
+    pdf = lba_pdf(t, b, A, v[choice], s);
+
+    for (i in 1:num_elements(v)) {
+      if (i != choice) {
+        cdf_prod *= (1 - lba_cdf(t, b, A, v[i], s));
+      }
+    }
+
+    return log(pdf * cdf_prod + 1e-10); // prevent underflow
+  }
+}
+
+data {
+  int<lower=1> N;                         // Number of participants
+  int<lower=1> T;                         // Max number of trials
+  int<lower=1> Tsubj[N];                  // Number of trials per participant
+
+  real RT[N, T];                          // Reaction times (in seconds)
+  int<lower=1, upper=2> choice[N, T];     // Choices: 1 or 2
+  int<lower=1, upper=2> target_cat[N, T];  // 1 = natural, 2 = man-made
+  real subtlex[N, T];                     // Predictor variable: word frequency (log scale)
+
+  real minRT[N];                          // Minimum RTs for each participant
+  real<lower=0> RTbound;                  // RT lower bound (e.g., 0.1s)
+}
+
+parameters {
+  // group-level parameters: mean
+  vector[5] mu_pr;  // A, k, psi, d1_intercept, d1_slope
+
+  // group-level parameters: standard deviation
+  vector<lower=0>[5] sigma;
+
+  // subject-level raw parameters
+  vector[N] A_pr;
+  vector[N] k_pr;
+  vector[N] psi_pr;
+  vector[N] d1_intercept_pr;
+  vector[N] d1_slope_pr;
+}
+  
+transformed parameters {
+  vector<lower=0>[N] A;
+  vector<lower=0>[N] k;
+  vector<lower=RTbound, upper=max(minRT)>[N] psi;
+
+  vector[N] d1_intercept;
+  vector[N] d1_slope;
+
+  matrix[N, T] drift_subtlex;
+
+  for (i in 1:N) {
+    A[i]  = exp(mu_pr[1] + sigma[1] * A_pr[i]);
+    k[i]  = exp(mu_pr[2] + sigma[2] * k_pr[i]);
+
+    psi[i] = Phi_approx(mu_pr[3] + sigma[3] * psi_pr[i]) * (minRT[i] - RTbound) + RTbound;
+
+    d1_intercept[i] = mu_pr[4] + sigma[4] * d1_intercept_pr[i];
+    d1_slope[i]     = mu_pr[5] + sigma[5] * d1_slope_pr[i];
+
+    for (t in 1:Tsubj[i]) {
+      drift_subtlex[i, t] = d1_intercept[i] + d1_slope[i] * subtlex[i, t];
+    }
+  }
+}
+
+model {
+  mu_pr ~ normal(0, 1);
+  sigma ~ normal(0, 0.2);
+
+  A_pr ~ normal(0, 1);
+  k_pr ~ normal(0, 1);
+  psi_pr ~ normal(0, 1);
+  d1_intercept_pr ~ normal(0, 1)T[0,];
+  d1_slope_pr ~ normal(0, 1);
+
+  for (i in 1:N) {
+    for (t in 1:Tsubj[i]) {
+      real v_nat;
+      real v_art;
+      real rt = RT[i, t];
+      int ch = choice[i, t];
+      
+      if (target_cat[i, t] == 1) {  // nat
+        v_nat = drift_subtlex[i, t];
+        v_art = 1.0;
+      } else {  // art
+        v_nat = 1.0;
+        v_art = drift_subtlex[i, t];
+      }
+      vector[2] drift_vec = [v_nat, v_art]';
+      target += lba_loglik(rt, ch, drift_vec, k[i], A[i], 1.0, psi[i]);
+    }
+  }
+}
+
+generated quantities {
+  matrix[N, T] drift_subtlex_output;
+  matrix[N, T] log_lik;
+  for (i in 1:N) {
+    for (t in 1:Tsubj[i]) {
+      real v_nat;
+      real v_art;
+      real rt = RT[i, t];
+      if (target_cat[i, t] == 1) {
+        v_nat = drift_subtlex[i, t];
+        v_art = 1.0;
+      } else {
+        v_nat = 1.0;
+        v_art = drift_subtlex[i, t];
+      }
+      vector[2] drift_vec = [v_nat, v_art]';
+      log_lik[i, t] = lba_loglik(rt, choice[i, t], drift_vec, k[i], A[i], 1.0, psi[i]);
+      drift_subtlex_output[i, t] = drift_subtlex[i, t];
+    }
+    for (t in (Tsubj[i] + 1):T) {
+      log_lik[i, t] = 0;
+      drift_subtlex_output[i, t] = -999;
+    }
+  }
+}

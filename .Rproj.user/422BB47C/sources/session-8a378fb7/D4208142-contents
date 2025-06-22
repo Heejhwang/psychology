@@ -1,0 +1,78 @@
+# --- 0. 환경 준비 ---
+set.seed(2025)
+library(dplyr)
+
+# --- 1. 시뮬레이션 설정 ---
+num_subjs  <- 42
+num_trials <- 100
+s <- 1.0  # standard deviation of drift rate
+
+# --- 2. posterior summary 불러오기 ---
+posterior_summary <- read.table("posterior_summary_lba.txt", header = TRUE, sep = "\t")
+posterior_summary$param <- rownames(posterior_summary)
+
+# --- 3. 파라미터별 추출 함수 ---
+get_param_samples <- function(name, N) {
+  post <- posterior_summary[grep(paste0("^", name, "\\["), posterior_summary$param), ]
+  rnorm(N, mean = post$mean, sd = post$sd)
+}
+
+# --- 4. 참가자별 true 파라미터 샘플링 ---
+simul_pars <- data.frame(
+  subjID    = 1:num_subjs,
+  d         = get_param_samples("d", num_subjs),
+  A         = get_param_samples("A", num_subjs),
+  tau       = get_param_samples("tau", num_subjs),
+  intercept = get_param_samples("intercept", num_subjs),
+  slope     = get_param_samples("slope", num_subjs)
+)
+simul_pars$b <- simul_pars$A + simul_pars$d
+
+# --- 5. 시뮬레이션 루프 시작 ---
+all_data <- NULL
+
+for (i in 1:num_subjs) {
+  subtlex_i  <- rnorm(num_trials, 0, 1)
+  stimtype_i <- sample(1:2, num_trials, replace = TRUE)
+  v_trial    <- matrix(NA, num_trials, 2)
+  
+  for (t in 1:num_trials) {
+    v_t <- simul_pars$intercept[i] + simul_pars$slope[i] * subtlex_i[t]
+    if (stimtype_i[t] == 1) {
+      v_trial[t, 1] <- v_t
+      v_trial[t, 2] <- 1.0
+    } else {
+      v_trial[t, 2] <- v_t
+      v_trial[t, 1] <- 1.0
+    }
+  }
+  
+  start <- matrix(runif(2 * num_trials, 0, simul_pars$A[i]), ncol = 2)
+  drift <- matrix(rnorm(2 * num_trials, mean = as.vector(v_trial), sd = s), ncol = 2)
+  ttf   <- (simul_pars$b[i] - start) / drift
+  ttf[drift <= 0] <- Inf
+  RT <- apply(ttf, 1, min) + simul_pars$tau[i]
+  choice <- apply(ttf, 1, which.min)
+  
+  tmp <- data.frame(
+    subjID         = rep(i, num_trials),
+    trial          = 1:num_trials,
+    choice         = choice,
+    RT             = RT,
+    stimulus_type  = stimtype_i,
+    subtlex        = subtlex_i,
+    true_d         = rep(simul_pars$d[i], num_trials),
+    true_A         = rep(simul_pars$A[i], num_trials),
+    true_tau       = rep(simul_pars$tau[i], num_trials),
+    true_intercept = rep(simul_pars$intercept[i], num_trials),
+    true_slope     = rep(simul_pars$slope[i], num_trials)
+  )
+  
+  
+  
+  all_data <- rbind(all_data, tmp)
+}
+
+# --- 6. 저장 ---
+write.table(all_data, file = "simul_data_lba_model1.txt",
+            row.names = FALSE, col.names = TRUE, sep = "\t")

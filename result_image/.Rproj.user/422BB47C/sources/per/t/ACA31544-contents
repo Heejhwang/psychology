@@ -1,0 +1,148 @@
+library(dplyr)
+library(rstan)
+library(ggplot2)
+library(loo)
+
+# Load data
+load("output.RData")
+
+#pre-processing
+dat <- data %>%
+  filter(target_mod != "word", priming_type == "no_priming") %>%
+  arrange(idcode, trial_index)
+
+
+set.seed(2025)
+
+# read the data file
+
+allSubjs = unique(dat$idcode)  # all subject IDs
+N <- length(allSubjs)      # number of subjects
+T <- max(table(dat$idcode))
+dat$rt <- dat$rt / 1000
+
+# idcode가 782733인 첫 번째 trial 인덱스 찾기
+idx <- which(dat$idcode == 782733 & dat$trial_index == 1)
+
+# 해당 idcode의 반응시간 중 첫 번째 rt가 너무 작으면 중간값으로 대체 (첫번째 제외)
+rt_median <- median(dat$rt[dat$idcode == 782733 & dat$trial_index != 1], na.rm = TRUE)
+
+# 조건에 맞으면 값 바꾸기
+if (length(idx) == 1 && dat$rt[idx] < 0.05) {
+  dat$rt[idx] <- rt_median
+}
+
+# response 열을 새로 생성하고 조건에 따라 값을 할당
+dat$response <- ifelse(dat$nat_cond == "man_made" & dat$acc == 1, "man_made", 
+                       ifelse(dat$nat_cond == "man_made" & dat$acc == 0, "natural", 
+                              ifelse(dat$nat_cond == "natural" & dat$acc == 1, "natural", 
+                                     ifelse(dat$nat_cond == "natural" & dat$acc == 0, "man_made", NA))))
+
+minRT <- sapply(allSubjs, function(s) {
+  min(dat$rt[dat$idcode == s], na.rm = TRUE)
+})
+
+#빈도 정규화
+dat$subtlex_z <- scale(dat$subtlex_log)
+
+choice  <- array(0, c(N, T))
+target_cat  <- array(0, c(N, T))
+RT <- array(0, c(N, T))
+subtlex <- array(0, c(N, T))
+
+for (i in 1:N) {
+  curSubj = allSubjs[i]
+  tmp = subset(dat, idcode == curSubj)
+  nTrials = nrow(tmp)
+  
+  # choice 0 → 2, 1 → 1 변환
+  choice[i, 1:nTrials] <- ifelse(tmp$response == "man_made", 2, 1)
+  # target 0 → 2, 1 → 1 변환 
+  target_cat[i, 1:nTrials] <- ifelse(tmp$nat_cond == "man_made", 2, 1)
+  
+  # rt, subtlex_log 도 실제 trial 수만큼 할당
+  RT[i, 1:nTrials] <- tmp$rt
+  subtlex[i, 1:nTrials]     <- tmp$subtlex_z
+}
+
+
+dataList <- list(
+  N       = N,
+  T       = T,
+  Tsubj   = rep(T, N),  # 또는 subject별 trial 수
+  RT      = RT,         # N x T
+  subtlex = subtlex,    # N x T
+  target_cat = target_cat, # N x T
+  choice  = choice,     # N x T
+  minRT   = minRT,
+  RTbound = 0.1
+)
+
+#Model 1
+output_lba <- stan(
+  file = "LBA_word.stan",
+  data = dataList,
+  pars = c("mu_pr", "sigma", "drift_subtlex_output", "A", "k", "psi", "d1_intercept", "d1_slope", "log_lik"),
+  iter = 2000,
+  warmup = 1000,
+  chains = 1,
+  cores = 4,
+  init = function() {
+    list(psi_pr = rep(-1.5, N))  # optional 초기값
+  }
+)
+
+# drift_subtlex_output에서 각 참가자별로 100개의 트라이얼에 대한 평균 계산
+mean_drift_rate <- apply(parameters$drift_subtlex_output, 2, mean)
+print(mean_drift_rate)
+
+# Extract posterior summary
+print(output_lba2, pars = "mu_pr")
+print(output_lba2, pars = "sigma")
+print(output_lba2, pars = "A")
+print(output_lba2, pars = "k")
+print(output_lba2, pars = "psi")
+print(output_lba2, pars = "d1_intercept")
+print(output_lba2, pars = "d1_slope")
+
+traceplot(output_lba, pars = "mu_pr")
+traceplot(output_lba, pars = "sigma")
+traceplot(output_lba, pars = "drift_subtlex_output")
+traceplot(output_lba, pars = "A")
+traceplot(output_lba, pars = "k")
+traceplot(output_lba, pars = "psi")
+traceplot(output_lba, pars = "d1_intercept")
+traceplot(output_lba, pars = "d1_slope")
+
+plot(output_lba, show_density = T, pars="mu_pr")
+plot(output_lba, show_density = T, pars="sigma")
+plot(output_lba, show_density = T, pars="A")
+plot(output_lba, show_density = T, pars="k")
+plot(output_lba, show_density = T, pars="psi")
+plot(output_lba, show_density = T, pars="d1_intercept")
+plot(output_lba, show_density = T, pars="d1_slope")
+
+
+# Stan 모델의 요약 결과 얻기
+fit_summary <- summary(output_lba)
+
+# Rhat 값 추출
+rhat_values <- fit_summary$summary[, "Rhat"]
+
+# Rhat 값 출력
+print(rhat_values)
+
+# COMPUTE LOOIC  -----------------------------------------
+
+ll <- extract_log_lik(output_lba)
+
+looic <- loo(ll)$looic
+
+print(looic)
+
+# posterior 샘플 추출
+samples <- rstan::extract(output_lba)
+
+# d1_slope의 평균 계산 (샘플 평균)
+mean_d1_slope <- mean(samples$d1_slope)
+print(mean_d1_slope)
