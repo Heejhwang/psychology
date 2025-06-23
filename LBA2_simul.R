@@ -32,6 +32,12 @@ param_values <- lapply(param_names, function(base) {
 })
 names(param_values) <- param_names
 
+names(param_values) <- param_names
+param_values$tau["sigma"] <- 0.3
+param_values$slope1["sigma"] <- 0.3
+param_values$slope2["sigma"] <- 0.5
+param_values$A["sigma"]<-1.2
+
 # 파라미터 샘플링
 simul_pars <- data.frame(
   d         = log1p(exp(param_values$d["mu"] + param_values$d["sigma"] * rnorm(N))),

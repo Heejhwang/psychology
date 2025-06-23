@@ -23,7 +23,7 @@ for (i in 1:N) {
   RT[i, 1:nTrials] <- tmp$rt
   choice[i, 1:nTrials] <- tmp$choice
   stimulus_type[i, 1:nTrials] <- tmp$stimulus_type
-  subtlex_arr[i, 1:nTrials] <- scale(tmp$subtlex)
+  subtlex_arr[i, 1:nTrials] <- tmp$subtlex
   N_tr_cond[i] <- nTrials
 }
 
@@ -49,16 +49,16 @@ init_fn <- function() {
     sigma_int = runif(1, 0.55, 0.60),
     
     mu_A = rnorm(1, 0.34, 0.01),
-    sigma_A = runif(1, 0.20, 0.25),
+    sigma_A = runif(1, 1.18, 1.22),
     
     mu_d = rnorm(1, 0.41, 0.01),
-    sigma_d = runif(1, 0.68, 0.73),
+    sigma_d = runif(1, 0.58, 0.62),
     
     mu_tau = rnorm(1, 0.01, 0.001),
-    sigma_tau = runif(1, 0.31, 0.33),
+    sigma_tau = runif(1, 0.28, 0.32),
     
     mu_slope = rnorm(1, 0.11, 0.01),
-    sigma_slope = runif(1, 0.04, 0.06),
+    sigma_slope = runif(1, 0.28, 0.32),
     
     A_raw = rnorm(N, 0, 0.05),
     d_raw = rnorm(N, 0, 0.05),
@@ -77,7 +77,7 @@ output <- sampling(
   warmup = 1000,
   chains = 4,
   cores  = 4,                  
-  control = list(adapt_delta = 0.95, max_treedepth = 14),
+  #control = list(adapt_delta = 0.95, max_treedepth = 14),
   refresh = 50,
   verbose = TRUE,
   pars = c("intercept", "slope", "A", "d", "tau")
@@ -96,10 +96,10 @@ get_par_stats <- function(name, stat = c("mean", "sd")) {
 }
 
 # 4. 비교 대상 파라미터
-params <- c("intercept", "slope", "A", "d", "tau")
+params <- c("A", "d", "tau", "intercept", "slope")
 
 # 5. 비교 플롯
-par(mfrow = c(1, 1))  # 2행 3열 그래프 레이아웃
+par(mfrow = c(2, 3))  # 2행 3열 그래프 레이아웃
 
 for (param in params) {
   true_val <- true_pars[[param]]

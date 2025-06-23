@@ -29,8 +29,11 @@ param_values <- lapply(names(param_names), function(base) {
   sigma <- get_scalar_par(paste0("sigma_", base))$mean
   return(c(mu = mu, sigma = sigma))
 })
-names(param_values) <- param_names
 
+names(param_values) <- param_names
+param_values$tau["sigma"] <- 0.3
+param_values$slope["sigma"] <- 0.3
+param_values$A["sigma"]<-1.2
 
 simul_pars <- data.frame(
   d         = log1p(exp(param_values$d["mu"] + param_values$d["sigma"] * rnorm(N))),
@@ -51,7 +54,6 @@ simulate_lba <- function(A, b, v, s, tau) {
   rt <- ttf[choice] + tau
   return(list(rt = rt, choice = choice))
 }
-
 # trial-by-trial 데이터 생성
 all_data <- NULL
 
@@ -90,3 +92,4 @@ for (i in 1:N) {
 # 결과 저장
 write.table(all_data, file = "simulated_lba1.txt", row.names = FALSE, sep = "\t")
 write.table(simul_pars, file = "true_parameters_lba1.txt", row.names = FALSE, sep = "\t")
+
